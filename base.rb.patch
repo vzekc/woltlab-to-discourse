@@ -1,0 +1,74 @@
+diff --git a/script/import_scripts/base.rb b/script/import_scripts/base.rb
+index 72df52ea58d..f692919473d 100644
+--- a/script/import_scripts/base.rb
++++ b/script/import_scripts/base.rb
+@@ -283,13 +283,12 @@ class ImportScripts::Base
+             created += 1
+           else
+             failed += 1
+-            puts "Failed to create user id: #{import_id}, username: #{new_user.try(:username)}, email: #{new_user.try(:email)}"
+-            if new_user.try(:errors)
+-              puts "user errors: #{new_user.errors.full_messages}"
+-              if new_user.try(:user_profile).try(:errors)
+-                puts "user_profile errors: #{new_user.user_profile.errors.full_messages}"
+-              end
++            errors = []
++            errors.concat(new_user.errors.full_messages) if new_user.try(:errors)
++            if new_user.try(:user_profile).try(:errors)
++              errors.concat(new_user.user_profile.errors.full_messages)
+             end
++            puts "  ⚠ Failed to import #{new_user.try(:username) || import_id}: #{errors.join(", ")}"
+           end
+         end
+       end
+@@ -374,6 +373,7 @@ class ImportScripts::Base
+       u.activate if opts[:active] && opts[:password].present?
+     rescue ActiveRecord::RecordInvalid => e
+       puts "Invalid user info, skipped: #{original_opts.inspect}"
++      puts "Validation errors: #{e.record.errors.full_messages.join(", ")}"
+       return
+     rescue => e
+       # try based on email
+@@ -569,7 +569,9 @@ class ImportScripts::Base
+             else
+               skipped += 1
+               puts "Error creating post #{import_id}. Skipping."
+-              p new_post
++              puts "  Errors: #{new_post.inspect}"
++              # Try to show more detail if it's an array of errors
++              new_post.each { |err| puts "  - #{err}" } if new_post.is_a?(Array)
+             end
+           rescue Discourse::InvalidAccess => e
+             skipped += 1
+@@ -616,7 +618,30 @@ class ImportScripts::Base
+     end
+ 
+     post_creator = PostCreator.new(user, opts)
+-    post = post_creator.create
++
++    begin
++      post = post_creator.create
++    rescue => e
++      puts "  EXCEPTION in PostCreator.create for import_id #{import_id}:"
++      puts "    #{e.class}: #{e.message}"
++      puts "    #{e.backtrace.first(10).join("\n    ")}"
++      return ["Exception: #{e.message}"]
++    end
++
++    # Debug: log post creator errors in detail
++    if post_creator.errors.present?
++      puts "  PostCreator errors for import_id #{import_id}:"
++      post_creator.errors.messages.each do |field, messages|
++        puts "    #{field}: #{messages.join(", ")}"
++      end
++    end
++
++    # If topic was created but post failed, we have an orphaned topic
++    # The cleanup script should be run before retrying the import
++    if post.nil? && opts[:title]
++      puts "  WARNING: Topic may have been created but post failed (orphaned topic)"
++    end
++
+     post_create_action.try(:call, post) if post
+     post && post_creator.errors.empty? ? post : post_creator.errors.full_messages
+   end
