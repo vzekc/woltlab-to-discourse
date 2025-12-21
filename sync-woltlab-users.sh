@@ -2,6 +2,8 @@
 
 set -e
 
+cd /var/www/discourse
+
 ssh_user="discourse@forum.classic-computing.de"
 
 cleanup() {
