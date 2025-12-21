@@ -20,7 +20,7 @@ require "uri"
 require "tempfile"
 
 # Database configuration
-DB_HOST = ENV["DB_HOST"] || "localhost"
+DB_HOST = ENV["DB_HOST"] || "127.0.0.1"
 DB_PORT = ENV["DB_PORT"] || "3306"
 DB_NAME = ENV["DB_NAME"] || "forum"
 DB_USER = ENV["DB_USER"] || "forum"

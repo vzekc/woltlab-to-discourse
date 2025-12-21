@@ -219,24 +219,6 @@ class ImportScripts::Woltlab < ImportScripts::Base
     puts e.message
     puts <<~TEXT
       Cannot connect to database.
-
-      Hostname: #{DB_HOST}
-      Port: #{DB_PORT}
-      Username: #{DB_USER}
-      Password: #{DB_PASSWORD}
-      Database: #{DB_NAME}
-      Table Prefix: #{TABLE_PREFIX}
-
-      Edit the script or set these environment variables:
-
-      export DB_HOST="localhost"
-      export DB_PORT="3306"
-      export DB_NAME="wbb3"
-      export DB_USER="root"
-      export DB_PASSWORD=""
-      export TABLE_PREFIX="wbb3_"
-
-      Exiting.
     TEXT
     exit 1
   end
