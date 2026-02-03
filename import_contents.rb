@@ -980,10 +980,13 @@ class ImportScripts::Woltlab < ImportScripts::Base
       discourse_user.title = woltlab_user["userTitle"] if woltlab_user["userTitle"].present?
 
       # Import custom user fields from userOption values
-      (1..46).each do |i|
-        next if [1, 5, 9].include?(i) # Skip directly mapped fields
+      # Dynamically find all userOption keys in the result set
+      woltlab_user.keys.each do |key|
+        next unless key =~ /^userOption(\d+)$/
+        i = $1.to_i
+        next if [1, 5, 9].include?(i) # Skip directly mapped fields (aboutMe, location, homepage)
 
-        option_value = woltlab_user["userOption#{i}"]
+        option_value = woltlab_user[key]
         next if option_value.nil? || option_value.to_s.strip.empty?
 
         option_name = @user_option_map[i]
@@ -1068,16 +1071,7 @@ class ImportScripts::Woltlab < ImportScripts::Base
          u.signature, u.profileHits, u.userTitle, u.avatarID,
          u.coverPhotoHash, u.coverPhotoExtension,
          a.fileHash, a.avatarExtension,
-         uov.userOption1, uov.userOption2, uov.userOption3, uov.userOption4, uov.userOption5,
-         uov.userOption6, uov.userOption7, uov.userOption8, uov.userOption9, uov.userOption10,
-         uov.userOption11, uov.userOption12, uov.userOption13, uov.userOption14, uov.userOption15,
-         uov.userOption16, uov.userOption17, uov.userOption18, uov.userOption19, uov.userOption20,
-         uov.userOption21, uov.userOption22, uov.userOption23, uov.userOption24, uov.userOption25,
-         uov.userOption26, uov.userOption27, uov.userOption28, uov.userOption29, uov.userOption30,
-         uov.userOption31, uov.userOption32, uov.userOption33, uov.userOption34, uov.userOption35,
-         uov.userOption36, uov.userOption37, uov.userOption38, uov.userOption40,
-         uov.userOption41, uov.userOption42, uov.userOption43, uov.userOption44, uov.userOption45,
-         uov.userOption46"
+         uov.*"
       end
 
       # Build FROM/JOIN clause
