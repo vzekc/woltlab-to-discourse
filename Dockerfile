@@ -1,6 +1,4 @@
-FROM discourse/base:release
-
-ARG DISCOURSE_REF=stable
+FROM discourse/base:release-stable
 
 ENV RAILS_ENV=production \
     IMPORT=1 \
@@ -8,8 +6,10 @@ ENV RAILS_ENV=production \
 
 WORKDIR /var/www/discourse
 
-RUN git clone --branch "${DISCOURSE_REF}" --depth 1 \
-        https://github.com/discourse/discourse.git .
+# Without this, any later git command in this tree fails with
+# "dubious ownership" because the working tree was created by a
+# different user during the base image build.
+RUN git config --global --add safe.directory /var/www/discourse
 
 # Match the runtime patch in sync-woltlab-users.sh: the WoltLab importer
 # uses the older sqlite3 gem API. Pinning here moves the patch from
@@ -24,9 +24,7 @@ RUN apt-get update && \
     apt-get install -y --no-install-recommends default-mysql-client && \
     rm -rf /var/lib/apt/lists/*
 
-RUN bundle config set --local deployment true && \
-    bundle config set --local without 'development test' && \
-    bundle install --jobs 4 --retry 3
+RUN bundle install --jobs 4 --retry 3
 
 # Copy the import scripts into the place Discourse expects them.
 COPY . /var/www/discourse/script/import_scripts/woltlab/
