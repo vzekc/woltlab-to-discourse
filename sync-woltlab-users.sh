@@ -1,4 +1,19 @@
 #!/bin/bash
+#
+# Used by the legacy Docker-based migrate container on the host VM,
+# invoked from /etc/systemd/system/woltlab-sync.service via:
+#   docker exec -e DB_PASSWORD=... migrate sync-woltlab-users.sh
+#
+# Patches Discourse's Gemfile in place at runtime, which is the wrong
+# layer but matches how the docker container is built today. The
+# Kubernetes sync uses sync-woltlab-users-k8s.sh, which assumes the
+# image already has the right Gemfile baked in.
+#
+# CLEANUP (post-cutover, when the docker setup is gone):
+#   - Delete this script.
+#   - Rename sync-woltlab-users-k8s.sh -> sync-woltlab-users.sh.
+#   - Remove the gem-pin Dockerfile patch from this repo's Dockerfile;
+#     the upstream Discourse Gemfile may have moved on by then.
 
 set -e
 
