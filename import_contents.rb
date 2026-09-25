@@ -154,7 +154,7 @@ class ImportScripts::Woltlab < ImportScripts::Base
     # Profile import configuration (always enabled)
     @import_profiles = true
     puts "\nProfile Import:"
-    puts "  Profiles: YES (signatures, profile views, titles, custom fields)"
+    puts "  Profiles: YES (signatures, titles, custom fields)"
 
     # Load user option mappings
     @user_option_map = load_user_option_mappings
@@ -973,9 +973,6 @@ class ImportScripts::Woltlab < ImportScripts::Base
         end
       end
 
-      # Import profile views
-      profile.views = woltlab_user["profileHits"].to_i if woltlab_user["profileHits"]
-
       # Set user title
       discourse_user.title = woltlab_user["userTitle"] if woltlab_user["userTitle"].present?
 
@@ -1068,7 +1065,7 @@ class ImportScripts::Woltlab < ImportScripts::Base
       if @import_profiles
         select_fields +=
           ",
-         u.signature, u.profileHits, u.userTitle, u.avatarID,
+         u.signature, u.userTitle, u.avatarID,
          u.coverPhotoHash, u.coverPhotoExtension,
          a.fileHash, a.avatarExtension,
          uov.*"

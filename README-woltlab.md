@@ -5,7 +5,7 @@ This script imports users, categories, posts, topics, and attachments from WoltL
 ## Features
 
 - **Users**: Import from `wcf3_user` table with banned user suspension and optional activity-based filtering
-- **User Profiles**: Imports profile data (signatures, profile views, user titles, custom fields, avatars)
+- **User Profiles**: Imports profile data (signatures, user titles, custom fields, avatars)
 - **Trust Levels**: Automatic assignment based on WoltLab activity points (posts, threads, likes received)
   - TL0 (New User): 0-4 points (inactive users, lurkers)
   - TL1 (Basic User): 5-171 points (normal members, ~10th-74th percentile)
@@ -291,7 +291,6 @@ bundle exec ruby script/import_scripts/woltlab/import_contents.rb
 - **About Me** text (WoltLab `aboutMe` → Discourse `bio_raw`)
 - **Location** (WoltLab `location` → Discourse `location`)
 - **Website** (WoltLab `homepage` → Discourse `website`)
-- **Profile view counts** (WoltLab `profileHits` → Discourse `profile.views`)
 - **User titles** (WoltLab `userTitle` → Discourse `user.title`)
 - **Custom fields**: All WoltLab user options with proper German labels from `wcf3_language_item`
   - Standard fields: Birthday, Gender, Occupation, Hobbies, social media accounts
@@ -660,7 +659,6 @@ The import runs in this order:
      - About Me text (`aboutMe` → `profile.bio_raw`)
      - Location (`location` → `profile.location`)
      - Website (`homepage` → `profile.website`)
-     - Profile view counts (`profileHits` → `profile.views`)
      - User titles (`userTitle` → `user.title`)
      - Custom fields: All WoltLab user options with German labels (Lieblingscomputer, Birthday, Gender, etc.)
      - Avatars and cover photos (downloaded from WoltLab server if `AVATAR_BASE_URL` is set)

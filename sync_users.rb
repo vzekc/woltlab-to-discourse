@@ -52,6 +52,7 @@ puts "  2. Sync group memberships"
 puts ""
 
 total_start = Time.now
+failed_steps = []
 
 # Step 1: Sync users
 puts "=" * 80
@@ -76,6 +77,7 @@ begin
   importer = ImportScripts::Woltlab.new
   importer.perform
 rescue StandardError => e
+  failed_steps << "user sync"
   puts "ERROR during user sync: #{e.message}"
   puts e.backtrace.first(10).join("\n")
 ensure
@@ -112,6 +114,7 @@ begin
   migrator = PermissionMigrator.new
   migrator.sync_group_memberships(remove_stale: remove_stale)
 rescue StandardError => e
+  failed_steps << "membership sync"
   puts "ERROR during membership sync: #{e.message}"
   puts e.backtrace.first(10).join("\n")
 end
@@ -124,7 +127,7 @@ total_duration = Time.now - total_start
 
 puts ""
 puts "=" * 80
-puts "SYNC COMPLETE"
+puts failed_steps.empty? ? "SYNC COMPLETE" : "SYNC FAILED: #{failed_steps.join(", ")}"
 puts "=" * 80
 puts ""
 puts "Duration:"
@@ -133,3 +136,6 @@ puts "  Membership sync: #{format_duration(step2_duration)}"
 puts "  Total: #{format_duration(total_duration)}"
 puts ""
 puts "=" * 80
+
+# A non-zero exit marks the systemd service as failed so the failure is noticed.
+exit 1 unless failed_steps.empty?
