@@ -25,7 +25,15 @@ ssh -f -N \
     -o StrictHostKeyChecking=accept-new \
     $ssh_user
 
+# Only users active on WoltLab within this window get a Discourse account.
+# Discourse's clean_up_inactive_users_after_days (730 on the live site) deletes
+# accounts that never posted and were not seen for two years, so importing
+# users idle for longer would create accounts that are deleted again the next
+# day. The window stays below the cleanup threshold to keep the two apart.
+IMPORT_SINCE="${IMPORT_SINCE:-700days}"
+
 # Run sync
 DB_HOST=127.0.0.1 DB_PORT=3306 DB_NAME=forum DB_USER=discourse DB_PASSWORD="$DB_PASSWORD" \
+                  IMPORT_SINCE="$IMPORT_SINCE" \
                   RAILS_ENV=production IMPORT=1 LOAD_PLUGINS=1 \
                   bundle exec rails runner script/import_scripts/woltlab/sync_users.rb
