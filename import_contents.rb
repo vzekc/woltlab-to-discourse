@@ -969,6 +969,12 @@ class ImportScripts::Woltlab < ImportScripts::Base
     end
   end
 
+  # The carriage-return progress line only makes sense on a terminal; in the
+  # journal it turns every line into unreadable blob data.
+  def print_status(*)
+    super if $stdout.tty?
+  end
+
   def sync_change(message)
     puts "  → #{message}"
     @sync_changes << message
@@ -1258,7 +1264,7 @@ class ImportScripts::Woltlab < ImportScripts::Base
           # Update existing user
           existing_user = User.find_by(id: existing_user_id)
           if existing_user
-            puts "  ↻ Updating existing user: #{existing_user.username}"
+            puts "  ↻ Updating existing user: #{existing_user.username}" if $stdout.tty?
             sync_username(existing_user, user["username"])
             sync_email(existing_user, user["email"])
             update_user_from_woltlab(existing_user, user)
