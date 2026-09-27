@@ -99,8 +99,17 @@ class ImportScripts::Woltlab < ImportScripts::Base
   # Useful for syncing changes after initial import
   UPDATE_EXISTING_USERS = ENV["UPDATE_EXISTING_USERS"] != "0"
 
+  # WoltLab marks an account deleted on the member's request by banning it and
+  # renaming it to deleted_<date>.
+  DELETED_USERNAME_PATTERN = /\Adeleted_/i
+
+  # Changes and problems worth a human look, printed as the sync report.
+  attr_reader :sync_changes, :sync_warnings
+
   def initialize
     super()
+    @sync_changes = []
+    @sync_warnings = []
     # Disable BBCode conversion temporarily to debug post creation issues
     @bbcode_to_md = false
 
@@ -901,6 +910,138 @@ class ImportScripts::Woltlab < ImportScripts::Base
     puts "=" * 80
   end
 
+  # Applies a WoltLab username change to the Discourse user. The target name goes
+  # through the same suggester the initial import used, so a user who received
+  # a sanitized or suffixed name at import time keeps it as long as the WoltLab
+  # name is unchanged. UsernameChanger rewrites mentions and quotes in existing
+  # posts via a background job and records the change in the staff action log.
+  def sync_username(discourse_user, woltlab_username)
+    return if woltlab_username.blank?
+
+    fixed_username = UserNameSuggester.fix_username(woltlab_username)
+    new_username =
+      if discourse_user.username_equals_to?(fixed_username)
+        fixed_username
+      else
+        UserNameSuggester.suggest(woltlab_username, current_username: discourse_user.username)
+      end
+    return if new_username.blank? || new_username == discourse_user.username
+
+    old_username = discourse_user.username
+    if UsernameChanger.change(discourse_user, new_username, Discourse.system_user)
+      sync_change "Renamed #{old_username} to #{new_username}"
+    else
+      sync_warning "Failed to rename #{old_username} to #{new_username}: #{discourse_user.errors.full_messages.join(", ")}"
+      discourse_user.reload
+    end
+  end
+
+  # Applies a WoltLab email change to the Discourse user's primary email.
+  # Addresses that are invalid or already belong to another Discourse user are
+  # reported and left alone.
+  def sync_email(discourse_user, woltlab_email)
+    new_email = Email.downcase(woltlab_email.to_s.strip)
+    return if new_email.blank?
+    return if Email.downcase(discourse_user.email.to_s) == new_email
+    # The initial import replaced an invalid address with a placeholder and kept
+    # the original in import_email; an unchanged invalid address needs no update.
+    return if discourse_user.custom_fields["import_email"] == new_email
+
+    unless EmailAddressValidator.valid_value?(new_email)
+      sync_warning "Not updating email for #{discourse_user.username}: invalid address '#{new_email}'"
+      return
+    end
+
+    if UserEmail.where("lower(email) = ?", new_email).where.not(user_id: discourse_user.id).exists?
+      sync_warning "Not updating email for #{discourse_user.username}: '#{new_email}' belongs to another user"
+      return
+    end
+
+    old_email = discourse_user.email
+    discourse_user.email = new_email
+    if discourse_user.save
+      discourse_user.custom_fields.delete("import_email")
+      discourse_user.save_custom_fields
+      sync_change "Changed email of #{discourse_user.username} from #{old_email} to #{new_email}"
+    else
+      sync_warning "Failed to update email for #{discourse_user.username}: #{discourse_user.errors.full_messages.join(", ")}"
+      discourse_user.reload
+    end
+  end
+
+  def sync_change(message)
+    puts "  → #{message}"
+    @sync_changes << message
+  end
+
+  def sync_warning(message)
+    puts "  ⚠ #{message}"
+    @sync_warnings << message
+  end
+
+  def woltlab_user_deleted?(woltlab_user)
+    woltlab_user["banned"].to_i == 1 &&
+      woltlab_user["username"].to_s.match?(DELETED_USERNAME_PATTERN)
+  end
+
+  # Deactivates the Discourse accounts of WoltLab users who were deleted, either
+  # marked deleted or removed from WoltLab altogether, and replaces their email
+  # with a placeholder so the address is free for a new account. Covers all
+  # WoltLab users regardless of IMPORT_SINCE and records the deleted WoltLab
+  # user IDs so the user import leaves them alone.
+  def deactivate_deleted_users
+    puts "", "Deactivating users deleted on WoltLab..."
+
+    woltlab_users =
+      mysql_query("SELECT userID, username, banned FROM wcf3_user").index_by do |row|
+        row["userID"].to_i
+      end
+    @deleted_woltlab_user_ids =
+      woltlab_users
+        .values
+        .select { |row| woltlab_user_deleted?(row) }
+        .to_set { |row| row["userID"].to_i }
+
+    UserCustomField
+      .where(name: "import_id")
+      .pluck(:value, :user_id)
+      .each do |import_id, user_id|
+        woltlab_user = woltlab_users[import_id.to_i]
+        next if woltlab_user && !woltlab_user_deleted?(woltlab_user)
+
+        user = User.find_by(id: user_id)
+        next unless user
+
+        reason = woltlab_user ? "deleted on WoltLab" : "no longer exists on WoltLab"
+        deactivate_deleted_user(user, reason)
+      end
+  end
+
+  def deactivate_deleted_user(user, reason)
+    return if !user.active && user.email.to_s.end_with?("@email.invalid")
+
+    if user.staff?
+      sync_warning "Not deactivating staff user #{user.username} (#{reason})"
+      return
+    end
+
+    old_email = user.email
+    User.transaction do
+      user.user_emails.where(primary: false).destroy_all
+      user.email = fake_email
+      user.save!
+      user.deactivate(Discourse.system_user)
+      user.custom_fields.delete("import_email")
+      user.save_custom_fields
+    end
+    UserAuthToken.where(user_id: user.id).destroy_all
+    user.logged_out
+
+    sync_change "Deactivated #{user.username} (#{reason}) and released #{old_email}"
+  rescue ActiveRecord::RecordInvalid => e
+    sync_warning "Failed to deactivate #{user.username} (#{reason}): #{e.message}"
+  end
+
   def update_user_from_woltlab(discourse_user, woltlab_user)
     # Apply all WoltLab user data to a Discourse user
     # Used for both new user creation and updating existing users
@@ -971,6 +1112,8 @@ class ImportScripts::Woltlab < ImportScripts::Base
         unless website =~ %r{\Ahttps?://\z}i
           profile.website = website if website =~ %r{\Ahttps?://}i
         end
+        # An address Discourse rejects would fail the whole profile save.
+        profile.website = profile.website_was if !profile.valid? && profile.errors[:website].any?
       end
 
       # Set user title
@@ -1003,7 +1146,7 @@ class ImportScripts::Woltlab < ImportScripts::Base
         discourse_user.save_custom_fields unless discourse_user.custom_fields_clean?
         discourse_user.save! if discourse_user.changed?
       rescue ActiveRecord::RecordInvalid => e
-        puts "  ⚠ Error updating profile for #{discourse_user.username}: #{e.message}"
+        sync_warning "Error updating profile for #{discourse_user.username}: #{e.message}"
       end
 
       # Import avatar if enabled
@@ -1039,6 +1182,8 @@ class ImportScripts::Woltlab < ImportScripts::Base
     puts "", "=" * 80
     puts "IMPORTING USERS"
     puts "=" * 80
+
+    deactivate_deleted_users
 
     # Build time filter clause for users (filter by lastActivityTime)
     user_time_filter = ""
@@ -1105,6 +1250,8 @@ class ImportScripts::Woltlab < ImportScripts::Base
       create_users(results, total: total_count, offset: offset) do |user|
         user_count += 1
 
+        next if @deleted_woltlab_user_ids&.include?(user["userID"].to_i)
+
         # Check if user already exists (when UPDATE_EXISTING_USERS is enabled)
         existing_user_id = user_id_from_imported_user_id(user["userID"])
         if existing_user_id && UPDATE_EXISTING_USERS
@@ -1112,9 +1259,16 @@ class ImportScripts::Woltlab < ImportScripts::Base
           existing_user = User.find_by(id: existing_user_id)
           if existing_user
             puts "  ↻ Updating existing user: #{existing_user.username}"
+            sync_username(existing_user, user["username"])
+            sync_email(existing_user, user["email"])
             update_user_from_woltlab(existing_user, user)
             next # Skip create_users for this user
           end
+        end
+
+        if !existing_user_id && (email_owner = User.find_by_email(user["email"].to_s.strip))
+          sync_warning "Not importing WoltLab user #{user["username"]} (#{user["userID"]}): email #{user["email"]} belongs to #{email_owner.username}"
+          next
         end
 
         result = {

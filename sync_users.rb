@@ -10,6 +10,10 @@
 #   2. Updates existing users with changes from WoltLab
 #   3. Syncs group memberships (adds missing, removes stale)
 #
+# Renames, email changes, deactivations and problems are printed at the end
+# between SYNC REPORT markers. notify-report@.service on the host mails that
+# block after a successful run.
+#
 # Environment variables:
 #   DB_HOST, DB_PORT, DB_NAME, DB_USER, DB_PASSWORD - MySQL connection
 #   IMPORT_SINCE - Optional: only sync users active since (e.g., "7days", "1month")
@@ -53,6 +57,7 @@ puts ""
 
 total_start = Time.now
 failed_steps = []
+importer = nil
 
 # Step 1: Sync users
 puts "=" * 80
@@ -136,6 +141,20 @@ puts "  Membership sync: #{format_duration(step2_duration)}"
 puts "  Total: #{format_duration(total_duration)}"
 puts ""
 puts "=" * 80
+
+report_lines = []
+report_lines.concat(failed_steps.map { |step| "Step failed: #{step}" })
+if importer
+  report_lines.concat(importer.sync_warnings.map { |warning| "Problem: #{warning}" })
+  report_lines.concat(importer.sync_changes.map { |change| "Change: #{change}" })
+end
+
+unless report_lines.empty?
+  puts ""
+  puts "---- SYNC REPORT BEGIN ----"
+  report_lines.each { |line| puts line }
+  puts "---- SYNC REPORT END ----"
+end
 
 # A non-zero exit marks the systemd service as failed so the failure is noticed.
 exit 1 unless failed_steps.empty?
