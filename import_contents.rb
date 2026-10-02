@@ -1086,14 +1086,6 @@ class ImportScripts::Woltlab < ImportScripts::Base
       puts "  → Set moderator flag for #{discourse_user.username}"
     end
 
-    # Set trust level based on activity points
-    activity_points = woltlab_user["activityPoints"] || 0
-    trust_level = calculate_trust_level(activity_points)
-    if discourse_user.trust_level != trust_level
-      discourse_user.trust_level = trust_level
-      discourse_user.save!
-    end
-
     # Import profile data if enabled
     if @import_profiles
       profile = discourse_user.user_profile
@@ -1290,6 +1282,9 @@ class ImportScripts::Woltlab < ImportScripts::Base
             proc do |newuser|
               # Use the extracted helper method for new users
               update_user_from_woltlab(newuser, user)
+              # The initial trust level comes from WoltLab activity points;
+              # after that, Discourse's own promotions and demotions manage it.
+              newuser.update!(trust_level: calculate_trust_level(user["activityPoints"] || 0))
             end,
         }
         result
